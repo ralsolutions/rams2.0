@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RAMS 2.0</title>
+<meta name="theme-color" content="#111827"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="RAMS 2.0"/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="icon" href="icons/icon-192.png"/>
+<link rel="apple-touch-icon" href="icons/icon-180.png"/>
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/babel.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:sans-serif;background:#f9fafb;padding:12px;font-size:15px;}
+input,textarea,select,button{font-family:sans-serif;font-size:16px;}
+input[type=text],input[type=date],textarea{width:100%;padding:12px;border-radius:8px;border:1px solid #e5e7eb;color:#111827;background:#fff;outline:none;-webkit-appearance:none;appearance:none;}
+input[type=text]:focus,input[type=date]:focus,textarea:focus{border-color:#2563EB;}
+textarea{resize:vertical;min-height:80px;}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent;}
+/* Mobile grid fixes */
+@media(max-width:600px){
+  .grid-2{grid-template-columns:1fr !important;}
+  .grid-3{grid-template-columns:1fr 1fr !important;}
+  .client-grid{grid-template-columns:1fr !important;}
+  .header-row{flex-direction:column !important;align-items:flex-start !important;}
+  .btn-row{flex-direction:column !important;}
+  .btn-row a, .btn-row button{width:100% !important;text-align:center !important;}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect} = React;
+const BG="#ffffff",BORDER="#e5e7eb",TEXT="#111827",MUTED="#6b7280",BLUE="#2563EB",LBLUE="#EFF6FF";
+const PRIMARY_EMAIL = "ropeaccessral@gmail.com";
+const APP_NAME = "RAMS 2.0";
+const DRAFT_KEY = "rams2_draft";
+const LAST_EMAIL_KEY = "rams2_last_email";
+
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} },
+  remove(k){ try{ localStorage.removeItem(k); }catch(e){} }
+};
+
+function loadDraft(){
+  try{ return JSON.parse(store.get(DRAFT_KEY)) || {}; }catch(e){ return {}; }
+}
+
+function emptyForm(){
+  return {
+    projectName:"",date:new Date().toLocaleDateString("en-NZ"),location:"",worksafeNumber:"",
+    company:"",technicians:"",teamLeader:"",
+    description:"",equipment:"",method:"",emergency:"",ppe:""
+  };
+}
+
+function Field({label,value,onChange,placeholder,multiline,rows=3}){
+  return(
+    <div style={{marginBottom:12}}>
+      {label&&<div style={{fontSize:13,color:MUTED,marginBottom:4,fontWeight:500}}>{label}</div>}
+      {multiline
+        ?<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows}/>
+        :<input type="text" value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/>
+      }
+    </div>
+  );
+}
+
+function Section({num,title,children}){
+  return(
+    <div style={{marginBottom:20,background:BG,borderRadius:10,border:`1px solid ${BORDER}`,overflow:"hidden"}}>
+      <div style={{background:"#111827",padding:"10px 16px",display:"flex",alignItems:"center",gap:10}}>
+        <span style={{background:BLUE,color:"#fff",borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{num}</span>
+        <span style={{color:"#fff",fontWeight:600,fontSize:14}}>{title}</span>
+      </div>
+      <div style={{padding:16}}>{children}</div>
+    </div>
+  );
+}
+
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxC9zaPvtQuyl0OIln5y_ZqiJaOV4TYMlLtBRnEqqaOtFWBqV8uQQ_Amsh49A7Lgk-Ezw/exec";
+
+function App(){
+  const [draft]=useState(loadDraft);
+  const [form,setForm]=useState(()=>({...emptyForm(),...draft.form}));
+  const [clients,setClients]=useState(draft.clients||[{name:"",mobile:""}]);
+  const [hazards,setHazards]=useState(draft.hazards||[{hazard:"",risk:"",control:""}]);
+  // Sign-off is never restored: technicians confirm again after reopening a draft.
+  const [signers,setSigners]=useState(()=>(draft.signers||[{initials:""}]).map(s=>({...s,signed:false})));
+  const [generating,setGenerating]=useState(false);
+  const [sending,setSending]=useState(false);
+  const [ccEmail,setCcEmail]=useState(()=>store.get(LAST_EMAIL_KEY)||"");
+
+  useEffect(()=>{
+    store.set(DRAFT_KEY,JSON.stringify({form,clients,hazards,signers}));
+  },[form,clients,hazards,signers]);
+
+  const newRams=()=>{
+    if(!window.confirm("Start a new RAMS? This clears the current form."))return;
+    store.remove(DRAFT_KEY);
+    setForm(emptyForm());
+    setClients([{name:"",mobile:""}]);
+    setHazards([{hazard:"",risk:"",control:""}]);
+    setSigners([{initials:"",signed:false}]);
+  };
+
+  const set=k=>v=>setForm(p=>({...p,[k]:v}));
+  const addClient=()=>setClients(p=>[...p,{name:"",mobile:""}]);
+  const removeClient=i=>setClients(p=>p.filter((_,j)=>j!==i));
+  const setClient=(i,k,v)=>setClients(p=>p.map((c,j)=>j===i?{...c,[k]:v}:c));
+  const addHazard=()=>setHazards(p=>[...p,{hazard:"",risk:"",control:""}]);
+  const removeHazard=i=>setHazards(p=>p.filter((_,j)=>j!==i));
+  const setHz=(i,k,v)=>setHazards(p=>p.map((r,j)=>j===i?{...r,[k]:v}:r));
+  const addSigner=()=>setSigners(p=>[...p,{initials:"",signed:false}]);
+  const removeSigner=i=>setSigners(p=>p.filter((_,j)=>j!==i));
+  const setSgn=(i,k,v)=>setSigners(p=>p.map((s,j)=>j===i?{...s,[k]:v}:s));
+  const allSigned=signers.every(s=>s.signed&&s.initials.trim());
+
+  const buildPDF = async () => {
+    const ref="RAL-"+Date.now().toString().slice(-6);
+    const today=new Date().toLocaleDateString("en-NZ");
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+    const W=210,M=15,CW=W-M*2;
+    let y=M;
+    
+    pdf.setFont("helvetica","bold");pdf.setFontSize(24);pdf.setTextColor(17,24,39);
+    pdf.text(APP_NAME,W/2,y+9,{align:"center"});
+    pdf.setFont("helvetica","normal");pdf.setFontSize(10);pdf.setTextColor(100,100,100);
+    pdf.text("Rope Access Method Statement",W/2,y+15,{align:"center"});
+    pdf.setFontSize(9);
+    pdf.text("Ref: "+ref,W-M,y+6,{align:"right"});
+    pdf.text(today,W-M,y+11,{align:"right"});
+    y+=22;
+    pdf.setDrawColor(17,24,39);pdf.setLineWidth(0.8);pdf.line(M,y,W-M,y);y+=7;
+    const sec=(n,t)=>{if(y>260){pdf.addPage();y=M;}pdf.setFont("helvetica","bold");pdf.setFontSize(12);pdf.setTextColor(17,24,39);pdf.text(n+". "+t,M,y);y+=2;pdf.setLineWidth(0.4);pdf.line(M,y,W-M,y);y+=5;};
+    const field=(label,val)=>{if(y>272){pdf.addPage();y=M;}pdf.setFont("helvetica","bold");pdf.setFontSize(9);pdf.setTextColor(100,100,100);pdf.text(label.toUpperCase()+": ",M,y);const lw=pdf.getTextWidth(label.toUpperCase()+": ");pdf.setFont("helvetica","normal");pdf.setTextColor(37,99,235);const lines=pdf.splitTextToSize(val||"—",CW-lw);pdf.text(lines,M+lw,y);y+=lines.length*5;};
+    const body=(txt)=>{if(y>272){pdf.addPage();y=M;}pdf.setFont("helvetica","normal");pdf.setFontSize(10);pdf.setTextColor(37,99,235);const lines=pdf.splitTextToSize(txt||"—",CW);lines.forEach(l=>{if(y>275){pdf.addPage();y=M;}pdf.text(l,M,y);y+=5;});y+=2;};
+    sec(1,"Project Details");
+    field("Project Name",form.projectName);
+    field("Date",form.date);
+    field("Location",form.location);
+    if((form.worksafeNumber||"").trim())field("Worksafe Notification No.",form.worksafeNumber.trim());
+    field("Company",form.company);
+    clients.forEach((c,i)=>{
+      field(clients.length>1?`Client ${i+1}`:"Client",c.name);
+      field(clients.length>1?`Mobile ${i+1}`:"Mobile",c.mobile);
+    });
+    field("Technicians",form.technicians);
+    field("Team Leader",form.teamLeader);
+    y+=2;
+    sec(2,"Description of Work");body(form.description);
+    sec(3,"Specific Rope Access Equipment");body(form.equipment);
+    sec(4,"Method Statement");body(form.method);
+    sec(5,"Risk Assessment");
+    if(y>220){pdf.addPage();y=M;}
+    const cw=CW/3;
+    pdf.setFillColor(17,24,39);pdf.rect(M,y,CW,8,"F");
+    pdf.setFont("helvetica","bold");pdf.setFontSize(9);pdf.setTextColor(255,255,255);
+    pdf.text("Hazard",M+2,y+5.5);pdf.text("Risk",M+cw+2,y+5.5);pdf.text("Control",M+cw*2+2,y+5.5);
+    y+=8;
+    hazards.forEach((h,i)=>{if(y>268){pdf.addPage();y=M;}pdf.setFillColor(i%2===0?255:249,249,249);pdf.rect(M,y,CW,10,"F");pdf.setDrawColor(209,213,219);pdf.setLineWidth(0.2);pdf.rect(M,y,CW,10,"S");pdf.line(M+cw,y,M+cw,y+10);pdf.line(M+cw*2,y,M+cw*2,y+10);pdf.setFont("helvetica","normal");pdf.setFontSize(9);pdf.setTextColor(17,24,39);pdf.text(pdf.splitTextToSize(h.hazard||"—",cw-4)[0],M+2,y+6.5);pdf.text(pdf.splitTextToSize(h.risk||"—",cw-4)[0],M+cw+2,y+6.5);pdf.text(pdf.splitTextToSize(h.control||"—",cw-4)[0],M+cw*2+2,y+6.5);y+=10;});y+=4;
+    sec(6,"Emergency / Rescue Plan");body(form.emergency);
+    sec(7,"PPE for this Specific Job");body(form.ppe);
+    if(y>200){pdf.addPage();y=M;}
+    sec(8,"Sign Off");
+    pdf.setFillColor(254,249,195);pdf.setDrawColor(234,179,8);pdf.setLineWidth(0.3);
+    const wt=pdf.splitTextToSize("This RAMS must reflect the actual work being carried out on site. If the scope of work, equipment, hazards, or work method changes, this document must be updated and communicated to all technicians before work continues.",CW-4);
+    const wh=wt.length*5+6;
+    pdf.rect(M,y,CW,wh,"FD");
+    pdf.setFont("helvetica","normal");pdf.setFontSize(8);pdf.setTextColor(133,79,11);
+    pdf.text(wt,M+2,y+5);y+=wh+4;
+    if(y>240){pdf.addPage();y=M;}
+    pdf.setDrawColor(17,24,39);pdf.setLineWidth(0.5);pdf.rect(M,y,CW,36,"S");
+    pdf.setFont("helvetica","normal");pdf.setFontSize(9);pdf.setTextColor(100,100,100);
+    pdf.text("Technician initials:",M+3,y+7);
+    let sx=M+3;
+    signers.forEach((s,i)=>{pdf.setFont("times","bold");pdf.setFontSize(22);pdf.setTextColor(17,24,39);pdf.text(s.initials.toUpperCase(),sx,y+20);pdf.setLineWidth(0.4);pdf.line(sx,y+22,sx+20,y+22);pdf.setFont("helvetica","normal");pdf.setFontSize(8);pdf.setTextColor(100,100,100);pdf.text("Tech "+(i+1),sx,y+27);sx+=26;});
+    pdf.setFontSize(8);pdf.setTextColor(100,100,100);
+    pdf.text("Signed off: "+today,M+3,y+33);y+=40;
+    pdf.setFont("helvetica","normal");pdf.setFontSize(8);pdf.setTextColor(150,150,150);
+    pdf.text("Document reference: "+ref+" · "+APP_NAME+" · Generated by RAL Forms",M,287);
+    return {pdf, ref, today};
+  };
+
+  const download = async () => {
+    if(!allSigned){alert("All technicians must add initials and sign off before downloading.");return;}
+    setGenerating(true);
+    try{
+      const {pdf,ref} = await buildPDF();
+      pdf.save("RAMS-"+(form.projectName||"document").replace(/\s+/g,"-")+"-"+ref+".pdf");
+    }catch(err){alert("Error: "+err.message);}
+    finally{setGenerating(false);}
+  };
+
+  const sendEmail = async () => {
+    if(!allSigned){alert("All technicians must add initials and sign off before sending.");return;}
+    setSending(true);
+    try{
+      const {pdf,ref} = await buildPDF();
+      const pdfBase64 = pdf.output("datauristring").split(",")[1];
+      const jsonData = JSON.stringify({form, clients, hazards, signers, ref}, null, 2);
+      const payload = {
+        to_email: ccEmail.trim() || PRIMARY_EMAIL,
+        cc_email: PRIMARY_EMAIL,
+        project_name: form.projectName || "RAMS",
+        ref: ref,
+        pdf_base64: pdfBase64,
+        json_data: jsonData
+      };
+      await fetch(SCRIPT_URL, {method:"POST",mode:"no-cors",body:JSON.stringify(payload)});
+      if(ccEmail.trim())store.set(LAST_EMAIL_KEY,ccEmail.trim());
+      alert("RAMS sent successfully to " + (ccEmail.trim() || PRIMARY_EMAIL) + "! Check your inbox.");
+    }catch(err){
+      alert("Error sending: "+err.message);
+    }finally{
+      setSending(false);
+    }
+  };
+
+  return(
+    <div style={{fontFamily:"sans-serif",background:"#f9fafb",minHeight:"100vh",maxWidth:800,margin:"0 auto"}}>
+      <div className="header-row" style={{background:BG,borderRadius:12,border:`1px solid ${BORDER}`,padding:"16px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+        
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:26,fontWeight:900,color:TEXT,letterSpacing:2}}>{APP_NAME}</div>
+          <div style={{fontSize:13,color:MUTED}}>Rope Access Method Statement</div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+          <button onClick={newRams} style={{background:BG,color:MUTED,border:`1px solid ${BORDER}`,borderRadius:6,padding:"6px 14px",fontSize:13,fontWeight:600,whiteSpace:"nowrap"}}>+ New RAMS</button>
+          <label style={{background:LBLUE,color:BLUE,border:"1px solid #BFDBFE",borderRadius:6,padding:"6px 14px",fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+            ✎ Edit RAMS — upload JSON file
+            <input type="file" accept=".json" style={{display:"none"}} onChange={e=>{
+              const file=e.target.files[0];
+              if(!file)return;
+              const fr=new FileReader();
+              fr.onload=ev=>{
+                try{
+                  let raw;
+                  try{ raw=JSON.parse(ev.target.result); }
+                  catch(e){ throw new Error("File is not valid JSON"); }
+                  let d = raw;
+                  if(raw.json_data){
+                    try{ d = typeof raw.json_data==="string" ? JSON.parse(raw.json_data) : raw.json_data; }
+                    catch(e){ d = raw; }
+                  }
+                  if(!d.form && !d.hazards && !d.clients){
+                    throw new Error("No RAMS data found in this file");
+                  }
+                  if(d.form){
+                    const {client, crew, ...cleanForm} = d.form;
+                    setForm(f=>({...f,...cleanForm}));
+                    if(!d.clients && client){
+                      setClients([{name:client, mobile:""}]);
+                    }
+                  }
+                  if(d.clients && d.clients.length) setClients(d.clients);
+                  if(d.hazards && d.hazards.length) setHazards(d.hazards);
+                  if(d.signers && d.signers.length) setSigners(d.signers.map(s=>({...s,signed:false})));
+                  alert("RAMS loaded! Review and re-sign before sending.");
+                }catch(err){ alert("Could not load file: "+err.message); }
+              };
+              fr.readAsText(file);
+              e.target.value="";
+            }}/>
+          </label>
+        </div>
+      </div>
+
+      <Section num="1" title="Project Details">
+        <div className="grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Field label="Project Name" value={form.projectName} onChange={set("projectName")} placeholder=""/>
+          <Field label="Date" value={form.date} onChange={set("date")} placeholder="e.g. 8/04/26"/>
+        </div>
+        <div className="grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Field label="Location" value={form.location} onChange={set("location")} placeholder="Full address"/>
+          <Field label="Worksafe Notification Number (optional)" value={form.worksafeNumber} onChange={set("worksafeNumber")} placeholder="e.g. WSN-001"/>
+        </div>
+        <div className="grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,alignItems:"start"}}>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:13,color:MUTED,marginBottom:4,fontWeight:500}}>Technicians Involved</div>
+            <textarea value={form.technicians} onChange={e=>{set("technicians")(e.target.value);e.target.style.height="auto";e.target.style.height=e.target.scrollHeight+"px";}}
+              placeholder="Names separated by commas" rows={1}
+              style={{width:"100%",padding:"10px 12px",borderRadius:6,border:`1px solid ${BORDER}`,color:TEXT,background:"#fff",outline:"none",resize:"none",overflow:"hidden",lineHeight:1.5}}/>
+          </div>
+          <Field label="Team Leader" value={form.teamLeader} onChange={set("teamLeader")} placeholder="Name"/>
+        </div>
+        <div className="grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,alignItems:"start"}}>
+          <Field label="Company" value={form.company} onChange={set("company")} placeholder="Company name"/>
+          <div>
+            {clients.map((c,i)=>(
+              <div key={i} style={{marginBottom:8,padding:10,background:"#f9fafb",borderRadius:8,border:`1px solid ${BORDER}`}}>
+                <div className="client-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"end"}}>
+                  <div>
+                    <div style={{fontSize:13,color:MUTED,marginBottom:4,fontWeight:500}}>
+                      {clients.length>1?`Client ${i+1}`:"Client (name)"}
+                    </div>
+                    <input type="text" value={c.name} onChange={e=>setClient(i,"name",e.target.value)} placeholder="Full name"/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:13,color:MUTED,marginBottom:4,fontWeight:500}}>
+                      {clients.length>1?`Mobile ${i+1}`:"Mobile"}
+                    </div>
+                    <input type="text" value={c.mobile} onChange={e=>setClient(i,"mobile",e.target.value)} placeholder="+64 21 000 0000"/>
+                  </div>
+                  {clients.length>1
+                    ? <button onClick={()=>removeClient(i)} style={{background:"#FCEBEB",color:"#991B1B",border:"none",borderRadius:4,padding:"2px 8px",fontSize:16,fontWeight:700,marginBottom:1}}>×</button>
+                    : <div/>
+                  }
+                </div>
+              </div>
+            ))}
+            <button onClick={addClient} style={{background:LBLUE,color:BLUE,border:"1px solid #BFDBFE",borderRadius:6,padding:"6px 14px",fontSize:13,fontWeight:600}}>+ Add client</button>
+          </div>
+        </div>
+      </Section>
+
+      <Section num="2" title="Description of Work">
+        <div style={{fontSize:13,color:MUTED,marginBottom:8,fontStyle:"italic"}}>Brief explanation of the task</div>
+        <Field value={form.description} onChange={set("description")} placeholder="Describe the work..." multiline rows={4}/>
+      </Section>
+      <Section num="3" title="Specific Rope Access Equipment to be Used">
+        <Field value={form.equipment} onChange={set("equipment")} placeholder="List all rope access equipment..." multiline rows={3}/>
+      </Section>
+      <Section num="4" title="Method Statement">
+        <div style={{fontSize:13,color:MUTED,marginBottom:8,fontStyle:"italic"}}>How the work will be done</div>
+        <Field value={form.method} onChange={set("method")} placeholder="Step by step method..." multiline rows={5}/>
+      </Section>
+      <Section num="5" title="Risk Assessment">
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",marginBottom:12}}>
+            <thead>
+              <tr>
+                {["Hazard","Risk","Control"].map(h=>(
+                  <th key={h} style={{background:"#111827",color:"#fff",padding:"10px 12px",fontSize:13,fontWeight:600,textAlign:"left",border:"1px solid #1f2937"}}>{h}</th>
+                ))}
+                <th style={{background:"#111827",width:40,border:"1px solid #1f2937"}}/>
+              </tr>
+            </thead>
+            <tbody>
+              {hazards.map((row,i)=>(
+                <tr key={i} style={{background:i%2===0?BG:"#f9fafb"}}>
+                  {["hazard","risk","control"].map(k=>(
+                    <td key={k} style={{padding:6,border:`1px solid ${BORDER}`,verticalAlign:"top"}}>
+                      <textarea value={row[k]} onChange={e=>setHz(i,k,e.target.value)}
+                        placeholder={k.charAt(0).toUpperCase()+k.slice(1)+"..."} rows={2}
+                        style={{width:"100%",border:"none",outline:"none",resize:"vertical",fontSize:13,background:"transparent",color:TEXT}}/>
+                    </td>
+                  ))}
+                  <td style={{padding:6,border:`1px solid ${BORDER}`,textAlign:"center",verticalAlign:"middle"}}>
+                    {hazards.length>1&&<button onClick={()=>removeHazard(i)} style={{background:"#FCEBEB",color:"#991B1B",border:"none",borderRadius:4,padding:"2px 8px",fontSize:16,fontWeight:700}}>×</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <button onClick={addHazard} style={{background:LBLUE,color:BLUE,border:"1px solid #BFDBFE",borderRadius:6,padding:"6px 16px",fontSize:13,fontWeight:600}}>+ Add row</button>
+      </Section>
+      <Section num="6" title="Emergency / Rescue Plan">
+        <Field value={form.emergency} onChange={set("emergency")} placeholder="Describe emergency and rescue procedures..." multiline rows={4}/>
+      </Section>
+      <Section num="7" title="PPE for this Specific Job">
+        <Field value={form.ppe} onChange={set("ppe")} placeholder="List all required PPE..." multiline rows={3}/>
+      </Section>
+      <Section num="8" title="Sign Off">
+        <div style={{background:"#FEF9C3",border:"1px solid #EAB308",borderRadius:6,padding:"10px 14px",fontSize:13,color:"#854F0B",marginBottom:16}}>
+          This RAMS must reflect the actual work being carried out on site. If the scope of work, equipment, hazards, or work method changes, this document must be updated and communicated to all technicians before work continues.
+        </div>
+        {signers.map((s,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"flex-end",gap:12,flexWrap:"wrap",marginBottom:12,padding:12,background:"#f9fafb",borderRadius:8,border:`1px solid ${BORDER}`}}>
+            <div style={{flex:"0 0 130px"}}>
+              <div style={{fontSize:13,color:MUTED,marginBottom:4,fontWeight:500}}>Technician {i+1} initials</div>
+              <input type="text" value={s.initials} onChange={e=>setSgn(i,"initials",e.target.value.slice(0,4).toUpperCase())}
+                placeholder="e.g. LG" maxLength={4}
+                style={{width:"100%",padding:"8px 12px",borderRadius:6,border:`2px solid ${s.signed?"#16a34a":BORDER}`,fontSize:26,fontWeight:900,fontFamily:"Georgia,serif",color:TEXT,textAlign:"center",letterSpacing:6,background:BG}}/>
+            </div>
+            <div style={{flex:2,minWidth:180}}>
+              <div style={{fontSize:13,color:MUTED,marginBottom:4,fontWeight:500}}>Sign off</div>
+              <div onClick={()=>setSgn(i,"signed",!s.signed)}
+                style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:s.signed?"#F0FDF4":"#f9fafb",border:`1px solid ${s.signed?"#86EFAC":BORDER}`,borderRadius:6,cursor:"pointer"}}>
+                <div style={{width:20,height:20,borderRadius:4,background:s.signed?"#16a34a":BG,border:`2px solid ${s.signed?"#16a34a":"#9ca3af"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  {s.signed&&<span style={{color:"#fff",fontSize:14,fontWeight:700}}>✓</span>}
+                </div>
+                <span style={{fontSize:13,color:s.signed?"#15803d":MUTED}}>{s.signed?"Signed off":"I confirm this RAMS is accurate"}</span>
+              </div>
+            </div>
+            {signers.length>1&&<button onClick={()=>removeSigner(i)} style={{background:"#FCEBEB",color:"#991B1B",border:"none",borderRadius:6,padding:"6px 12px",fontSize:13,fontWeight:600}}>Remove</button>}
+          </div>
+        ))}
+        <button onClick={addSigner} style={{background:LBLUE,color:BLUE,border:"1px solid #BFDBFE",borderRadius:6,padding:"6px 16px",fontSize:13,fontWeight:600}}>+ Add technician initials</button>
+      </Section>
+
+      <div style={{marginBottom:32,maxWidth:480,margin:"0 auto 32px"}}>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:13,color:MUTED,marginBottom:4,fontWeight:500}}>Send to email</div>
+          <input type="text" value={ccEmail} onChange={e=>setCcEmail(e.target.value)}
+            placeholder="Client email (optional)"
+            style={{width:"100%",padding:"10px 12px",borderRadius:6,border:`1px solid ${BORDER}`,fontSize:14,color:TEXT,background:BG}}/>
+        </div>
+        <div className="btn-row" style={{display:"flex",gap:10,flexDirection:"column"}}>
+          <button onClick={sendEmail} disabled={sending||!allSigned}
+            style={{background:allSigned?"#111827":"#9ca3af",color:"#fff",border:"none",borderRadius:10,padding:"14px 40px",fontSize:15,fontWeight:700,cursor:allSigned?"pointer":"not-allowed",width:"100%"}}>
+            {sending?"Sending...":"📧 Send RAMS by email (PDF + JSON)"}
+          </button>
+          <button onClick={download} disabled={generating||!allSigned}
+            style={{background:allSigned?"#2563EB":"#9ca3af",color:"#fff",border:"none",borderRadius:10,padding:"12px 40px",fontSize:14,fontWeight:600,cursor:allSigned?"pointer":"not-allowed",width:"100%"}}>
+            {generating?"Generating...":"⬇ Download PDF only"}
+          </button>
+        </div>
+        {!allSigned&&<div style={{fontSize:13,color:MUTED,marginTop:8,textAlign:"center"}}>All technicians must add initials and sign off to enable</div>}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<script>
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js"));
+}
+</script>
+</body>
+</html>
