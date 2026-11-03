@@ -36,7 +36,7 @@ self.addEventListener("fetch", e => {
 
   // The page itself: use the latest version when online, the saved copy when offline.
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request.url, { cache: "no-cache" })
       .then(res => {
         if (res.ok) {
           const copy = res.clone();
